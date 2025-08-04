@@ -1,16 +1,18 @@
 # Import
 import numpy as np
 import random
+from src.utils import compute_score
 
 # Class
 class YahtzeeGame:
-    def __init__(self):
+    def __init__(self, strategy=None):
         """Initializes the Yahtzee game with settings.
         Call reset() to start a new game.
         """
         self.num_dice = 5
         self.max_rolls = 3
         self.verbose = False
+        self.strategy = strategy
         self.reset()
     
     def reset(self):
@@ -67,7 +69,7 @@ class YahtzeeGame:
         self.rolls_left -= 1
 
     def score_round(self, category):
-        score = self.compute_score(category, self.current_dice)
+        score = compute_score(category, self.current_dice)
         self.scores[category] = score
         self.final_score += score
         self.available_categories.remove(category)
@@ -105,55 +107,6 @@ class YahtzeeGame:
             reward = self.score_round(category)
             return self.get_state(), reward, self.done, {}
 
-    def compute_score(self, category, dices):
-        """Calculates the score for the given category based on the dice rolled, according to Yahtzee rules.
-
-        :return int: Category score.
-        """
-        counts = [np.count_nonzero(dices == i) for i in range(1, 7)]
-
-        if category in ['1', '2', '3', '4', '5', '6']:
-            face = int(category)
-            return np.sum(dices[dices == face])
-        elif category == 'brelan':
-            if any(c >= 3 for c in counts):
-                return np.sum(dices)
-            return 0
-        elif category == 'carre':
-            if any(c >= 4 for c in counts):
-                return np.sum(dices)
-            return 0
-        elif category == 'yahtzee':
-            for value in range(1, 7):
-                if np.count_nonzero(dices == value) == 5:
-                    return 50
-            return 0
-        elif category == 'chance':
-            return np.sum(dices)
-        elif category == 'full':
-            if 3 in counts and 2 in counts:
-                return 25
-            if 3 in counts and counts.count(1) == 2:
-                return 25
-            return 0
-        elif category == 'petite_suite':
-            # Check all small straight sequences
-            straights = [
-                {1, 2, 3, 4},
-                {2, 3, 4, 5},
-                {3, 4, 5, 6}
-            ]
-            dice_set = set(dices)
-            if any(straight.issubset(dice_set) for straight in straights):
-                return 30
-            return 0
-        elif category == 'grande_suite':
-            dice_set = set(dices)
-            if {1, 2, 3, 4, 5}.issubset(dice_set) or {2, 3, 4, 5, 6}.issubset(dice_set):
-                return 40
-            return 0
-        raise NotImplementedError(f"category {category}")
-
     def run_game(self):
         """Run a 13 rounds Yahtzee game."""
         if self.verbose:
@@ -164,11 +117,25 @@ class YahtzeeGame:
                 print(f"Dice: {self.current_dice.tolist()}")
 
             if self.rolls_left > 1:
-                # Keep highest dice for simplicity
-                keep_mask = [val >= 5 for val in self.current_dice]
+                if self.strategy is not None:
+                    keep_mask = self.strategy.choose_dice_to_keep(
+                        dice=self.current_dice.copy(),
+                        rolls_left=self.rolls_left,
+                        available_categories=self.available_categories.copy()
+                    )
+                else:
+                    keep_mask = [True] * 5  # default fallback
+    
                 action = (keep_mask, None)
             else:
-                category = random.choice(self.available_categories)
+                if self.strategy is not None:
+                    category = self.strategy.choose_category(
+                        dice=self.current_dice.copy(),
+                        available_categories=self.available_categories.copy()
+                    )
+                else:
+                    category = random.choice(self.available_categories)
+        
                 if self.verbose:
                     print(f"Scoring category: {category}")
                 action = ([True]*5, category)
